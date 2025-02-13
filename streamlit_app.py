@@ -7,10 +7,12 @@ import statsmodels.api as sm
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error, r2_score
 
+st.set_page_config(layout="wide")
+
 st.title("Regression Metrics: R², RMSE, and Error Visualization")
 
 # Split layout into two columns
-col1, col2 = st.columns([2, 1])
+col1, col2 = st.columns([1, 1])
 
 with col1:
     
