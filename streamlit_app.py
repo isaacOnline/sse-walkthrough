@@ -1,151 +1,68 @@
-import streamlit as st
+import numpy as np
 import pandas as pd
-import math
-from pathlib import Path
+import plotly.express as px
+import plotly.graph_objects as go
+import streamlit as st
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import mean_squared_error, r2_score
 
-# Set the title and favicon that appear in the Browser's tab bar.
-st.set_page_config(
-    page_title='GDP dashboard',
-    page_icon=':earth_americas:', # This is an emoji shortcode. Could be a URL too.
-)
+st.title("Regression Metrics: R², RMSE, and Error Visualization")
 
-# -----------------------------------------------------------------------------
-# Declare some useful functions.
+# Generate sample data
+np.random.seed(42)
+n = 35
+X = np.random.rand(n, 1) * 10
+y_true = 3 * X.squeeze() + 7 + np.random.randn(n) * 3
 
-@st.cache_data
-def get_gdp_data():
-    """Grab GDP data from a CSV file.
+data = pd.DataFrame({"X": X.squeeze(), "y": y_true})
 
-    This uses caching to avoid having to read the file every time. If we were
-    reading from an HTTP endpoint instead of a file, it's a good idea to set
-    a maximum age to the cache with the TTL argument: @st.cache_data(ttl='1d')
-    """
+# User controls for noise level
+noise = st.slider("Noise Level", 0.0, 5.0, 3.0, 0.1)
+y_noisy = 3 * X.squeeze() + 7 + np.random.randn(n) * noise
 
-    # Instead of a CSV on disk, you could read from an HTTP endpoint here too.
-    DATA_FILENAME = Path(__file__).parent/'data/gdp_data.csv'
-    raw_gdp_df = pd.read_csv(DATA_FILENAME)
+# Fit linear regression model
+model = LinearRegression()
+model.fit(X, y_noisy)
+y_pred = model.predict(X)
 
-    MIN_YEAR = 1960
-    MAX_YEAR = 2022
+# Calculate metrics
+sse = np.sum((y_noisy - y_pred) ** 2)
+tse = np.sum((y_noisy - np.mean(y_noisy)) ** 2)
+r2 = r2_score(y_noisy, y_pred)
+rmse = np.sqrt(mean_squared_error(y_noisy, y_pred))
 
-    # The data above has columns like:
-    # - Country Name
-    # - Country Code
-    # - [Stuff I don't care about]
-    # - GDP for 1960
-    # - GDP for 1961
-    # - GDP for 1962
-    # - ...
-    # - GDP for 2022
-    #
-    # ...but I want this instead:
-    # - Country Name
-    # - Country Code
-    # - Year
-    # - GDP
-    #
-    # So let's pivot all those year-columns into two: Year and GDP
-    gdp_df = raw_gdp_df.melt(
-        ['Country Code'],
-        [str(x) for x in range(MIN_YEAR, MAX_YEAR + 1)],
-        'Year',
-        'GDP',
-    )
+# Plot data and regression line
+fig = px.scatter(x=X.squeeze(), y=y_noisy, labels={"x": "X", "y": "y"}, title="Regression Fit")
+fig.add_scatter(x=X.squeeze(), y=y_pred, mode='lines', name='Regression Line')
 
-    # Convert years from string to integers
-    gdp_df['Year'] = pd.to_numeric(gdp_df['Year'])
+# Add selected error visualizations
+show_sse = st.checkbox("Show Sum of Squared Errors (SSE)")
+show_tse = st.checkbox("Show Total Squared Error (TSE)")
 
-    return gdp_df
+if show_sse:
+    for i in range(n):
+        fig.add_trace(go.Scatter(x=[X.squeeze()[i], X.squeeze()[i]],
+                                 y=[y_noisy[i], y_pred[i]],
+                                 mode='lines', line=dict(color='red'),
+                                 showlegend=(i == 0), name='SSE (Residual)'))
+if show_tse:
+    for i in range(n):
+        fig.add_trace(go.Scatter(x=[X.squeeze()[i], X.squeeze()[i]],
+                                 y=[y_noisy[i], np.mean(y_noisy)],
+                                 mode='lines', line=dict(color='blue'),
+                                 showlegend=(i == 0), name='TSE'))
 
-gdp_df = get_gdp_data()
+st.plotly_chart(fig)
 
-# -----------------------------------------------------------------------------
-# Draw the actual page
+# Display formulas and corresponding metrics
+st.latex(r"SSE = \sum (y_i - \hat{y}_i)^2")
+st.metric("Sum of Squared Errors (SSE)", f"{sse:.3f}")
 
-# Set the title that appears at the top of the page.
-'''
-# :earth_americas: GDP dashboard
+st.latex(r"TSE = \sum (y_i - \bar{y})^2")
+st.metric("Total Sum of Squares (TSE)", f"{tse:.3f}")
 
-Browse GDP data from the [World Bank Open Data](https://data.worldbank.org/) website. As you'll
-notice, the data only goes to 2022 right now, and datapoints for certain years are often missing.
-But it's otherwise a great (and did I mention _free_?) source of data.
-'''
+st.latex(r"RMSE = \sqrt{\frac{SSE}{n}}")
+st.metric("Root Mean Squared Error (RMSE)", f"{rmse:.3f}")
 
-# Add some spacing
-''
-''
-
-min_value = gdp_df['Year'].min()
-max_value = gdp_df['Year'].max()
-
-from_year, to_year = st.slider(
-    'Which years are you interested in?',
-    min_value=min_value,
-    max_value=max_value,
-    value=[min_value, max_value])
-
-countries = gdp_df['Country Code'].unique()
-
-if not len(countries):
-    st.warning("Select at least one country")
-
-selected_countries = st.multiselect(
-    'Which countries would you like to view?',
-    countries,
-    ['DEU', 'FRA', 'GBR', 'BRA', 'MEX', 'JPN'])
-
-''
-''
-''
-
-# Filter the data
-filtered_gdp_df = gdp_df[
-    (gdp_df['Country Code'].isin(selected_countries))
-    & (gdp_df['Year'] <= to_year)
-    & (from_year <= gdp_df['Year'])
-]
-
-st.header('GDP over time', divider='gray')
-
-''
-
-st.line_chart(
-    filtered_gdp_df,
-    x='Year',
-    y='GDP',
-    color='Country Code',
-)
-
-''
-''
-
-
-first_year = gdp_df[gdp_df['Year'] == from_year]
-last_year = gdp_df[gdp_df['Year'] == to_year]
-
-st.header(f'GDP in {to_year}', divider='gray')
-
-''
-
-cols = st.columns(4)
-
-for i, country in enumerate(selected_countries):
-    col = cols[i % len(cols)]
-
-    with col:
-        first_gdp = first_year[first_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-        last_gdp = last_year[last_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-
-        if math.isnan(first_gdp):
-            growth = 'n/a'
-            delta_color = 'off'
-        else:
-            growth = f'{last_gdp / first_gdp:,.2f}x'
-            delta_color = 'normal'
-
-        st.metric(
-            label=f'{country} GDP',
-            value=f'{last_gdp:,.0f}B',
-            delta=growth,
-            delta_color=delta_color
-        )
+st.latex(r"R^2 = 1 - \frac{SSE}{TSE}")
+st.metric("Coefficient of Determination (R²)", f"{r2:.3f}")
